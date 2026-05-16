@@ -252,6 +252,20 @@
   </div>
 </div>
 
+<!-- Add-type modal -->
+<div class="modal-backdrop" id="addTypeModal" style="display:none;">
+  <div class="modal-card">
+    <h2 style="margin:0 0 10px;font-size:1.05rem;">Add exercise type</h2>
+    <label for="newTypeName">Name</label>
+    <input type="text" id="newTypeName" placeholder="e.g. Bike ride, Walk, Yoga" style="width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:8px; background:#fff; font-size:0.95rem;">
+    <div style="font-size:0.78rem; color:var(--text-dim); margin-top:6px;">Saves to this device. Use existing names where you can — they're case-insensitive.</div>
+    <div class="btn-row" style="margin-top:12px;">
+      <button type="button" class="btn" id="addTypeSaveBtn">Save</button>
+      <button type="button" class="btn secondary" id="addTypeCancelBtn">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <main>
   <!-- Identity strip -->
   <div class="card" id="identityCard">
@@ -272,15 +286,24 @@
           <input type="datetime-local" id="loggedAt" required>
         </div>
         <div>
-          <label for="exType">Type</label>
-          <input type="text" id="exType" required placeholder="e.g. Bike ride, Walk, Yoga" list="exTypeList">
-          <datalist id="exTypeList"></datalist>
+          <label for="exTypeSel">Type</label>
+          <div style="display:flex; gap:6px; align-items:stretch;">
+            <select id="exTypeSel" style="flex:1; padding:8px 10px; border:1px solid var(--border); border-radius:8px; background:#fff; font-size:0.95rem; min-width:0;">
+              <option value="">— pick a type —</option>
+            </select>
+            <button type="button" id="addTypeBtn" class="btn secondary" style="padding:0 12px; font-size:1.2rem; flex:0 0 auto;" title="Add new type">+</button>
+          </div>
         </div>
       </div>
       <div class="row">
         <div>
-          <label for="durMin">Minutes</label>
-          <input type="number" id="durMin" min="0" step="0.5" inputmode="decimal" placeholder="30">
+          <label>Duration</label>
+          <div style="display:flex; gap:6px; align-items:center;">
+            <input type="number" id="durMin" min="0" step="1" inputmode="numeric" placeholder="0" style="flex:1; min-width:0;">
+            <span style="color:var(--text-dim); font-size:0.85rem;">min</span>
+            <input type="number" id="durSec" min="0" max="59" step="1" inputmode="numeric" placeholder="0" style="flex:1; min-width:0;">
+            <span style="color:var(--text-dim); font-size:0.85rem;">sec</span>
+          </div>
         </div>
         <div>
           <label for="cals">Calories</label>
@@ -405,8 +428,10 @@ const DAY_NAMES_SHORT = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
 /* ─── State ───────────────────────────────────────────────────────────*/
 let _entries = [];
+let _types   = [];      // exercise.types rows for this device
 let _range = 'today';
 let _editId = null;
+let _selectedTypeName = '';  // the type currently chosen in the form (case preserved)
 
 /* ─── Supabase helpers ───────────────────────────────────────────────*/
 async function sb(method, path, body) {
@@ -426,6 +451,30 @@ async function loadEntries() {
   const path = 'entries?device_id=eq.' + encodeURIComponent(DEVICE_ID)
     + '&order=logged_at.desc&limit=1000';
   _entries = await sb('GET', path) || [];
+}
+async function loadTypes() {
+  const path = 'types?device_id=eq.' + encodeURIComponent(DEVICE_ID)
+    + '&order=name.asc';
+  _types = await sb('GET', path) || [];
+}
+function findTypeByName(name) {
+  if (!name) return null;
+  const lower = name.trim().toLowerCase();
+  return _types.find(t => t.name.toLowerCase() === lower) || null;
+}
+async function ensureType(name) {
+  // Returns the canonical type name. Creates a new types row if missing.
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error('Type name required');
+  const existing = findTypeByName(trimmed);
+  if (existing) return existing.name;
+  const created = await sb('POST', 'types', { device_id: DEVICE_ID, name: trimmed });
+  if (created && created[0]) {
+    _types.push(created[0]);
+    _types.sort((a, b) => a.name.localeCompare(b.name));
+    return created[0].name;
+  }
+  return trimmed;  // fallback (shouldn't reach if POST succeeded)
 }
 
 async function saveEntry(payload) {
@@ -462,12 +511,29 @@ function filterByRange(entries, range) {
   return entries.filter(e => new Date(e.logged_at).getTime() >= ms);
 }
 
+/* Returns minutes (fractional) for an entry. Prefers second-precision
+   duration_seconds (v0.4+), falls back to duration_minutes (older). */
+function entryMinutes(e) {
+  if (Number.isFinite(parseInt(e.duration_seconds, 10))) return e.duration_seconds / 60;
+  const m = parseFloat(e.duration_minutes);
+  return Number.isFinite(m) ? m : 0;
+}
+/* Format duration as MM:SS for display. */
+function fmtMinSec(totalMinutes) {
+  if (totalMinutes == null || !Number.isFinite(totalMinutes) || totalMinutes <= 0) return '';
+  const totalSec = Math.round(totalMinutes * 60);
+  const mm = Math.floor(totalSec / 60);
+  const ss = totalSec - mm * 60;
+  if (ss === 0) return mm + ' min';
+  return mm + ':' + String(ss).padStart(2, '0');
+}
+
 function summarize(entries) {
   let mins = 0, cals = 0;
   // Duration-weighted avg HR (more accurate than simple mean across short+long workouts)
   let hrMinSum = 0, hrWeightSum = 0;
   for (const e of entries) {
-    const m = parseFloat(e.duration_minutes) || 0;
+    const m = entryMinutes(e);
     const c = parseInt(e.calories, 10) || 0;
     mins += m;
     cals += c;
@@ -540,10 +606,15 @@ function renderAll() {
   document.getElementById('nicknameInput').value = getNickname();
   document.getElementById('deviceLabel').textContent = '· device ' + DEVICE_ID.slice(0, 8);
 
-  // Datalist of unique exercise types for autocomplete.
-  const types = [...new Set(_entries.map(e => e.exercise_type).filter(Boolean))];
-  document.getElementById('exTypeList').innerHTML =
-    types.map(t => '<option value="' + esc(t) + '">').join('');
+  // Type dropdown — populated from exercise.types (per-device registry).
+  // We preserve the user's selection across renders.
+  const sel = document.getElementById('exTypeSel');
+  if (sel) {
+    const cur = _selectedTypeName || sel.value || '';
+    sel.innerHTML = '<option value="">— pick a type —</option>'
+      + _types.map(t => '<option value="' + esc(t.name) + '">' + esc(t.name) + '</option>').join('');
+    sel.value = cur;
+  }
 
   // Filtered entries + summary.
   const filtered = filterByRange(_entries, _range);
@@ -563,7 +634,7 @@ function renderAll() {
     root.innerHTML = '<div class="empty">No entries in this range yet. Log one above.</div>';
   } else {
     root.innerHTML = filtered.map(e => {
-      const m = parseFloat(e.duration_minutes) || 0;
+      const m = entryMinutes(e);
       const c = parseInt(e.calories, 10) || 0;
       const calHr = (m > 0 && c > 0) ? Math.round((c * 60) / m) : null;
       const ahr = parseInt(e.avg_heart_rate, 10);
@@ -572,6 +643,7 @@ function renderAll() {
       if (calHr != null) badges.push('<span class="badge calhr">' + calHr + ' cal/hr</span>');
       if (Number.isFinite(ahr) && ahr > 0) badges.push('<span class="badge hr">♥ avg ' + ahr + '</span>');
       if (Number.isFinite(mhr) && mhr > 0) badges.push('<span class="badge hr">♥ max ' + mhr + '</span>');
+      const durStr = fmtMinSec(m);
       return `
         <div class="entry">
           <div>
@@ -580,7 +652,7 @@ function renderAll() {
               <span class="e-when">${esc(fmtWhen(e.logged_at))}</span>
             </div>
             <div class="e-stats">
-              ${e.duration_minutes ? esc(e.duration_minutes) + ' min · ' : ''}${e.calories ? esc(e.calories) + ' cal' : ''}
+              ${durStr ? esc(durStr) + (c ? ' · ' : '') : ''}${c ? esc(c) + ' cal' : ''}
             </div>
             ${badges.length ? '<div class="e-badges">' + badges.join('') + '</div>' : ''}
             ${e.notes ? '<div class="e-notes">' + esc(e.notes) + '</div>' : ''}
@@ -651,12 +723,14 @@ function nowLocalIso() {
 
 function resetForm() {
   _editId = null;
+  _selectedTypeName = '';
   document.getElementById('formTitle').textContent = 'Log exercise';
   document.getElementById('cancelEditBtn').style.display = 'none';
   document.getElementById('saveBtn').textContent = 'Save';
   document.getElementById('loggedAt').value = nowLocalIso();
-  document.getElementById('exType').value = '';
+  const sel = document.getElementById('exTypeSel'); if (sel) sel.value = '';
   document.getElementById('durMin').value = '';
+  document.getElementById('durSec').value = '';
   document.getElementById('cals').value = '';
   document.getElementById('avgHr').value = '';
   document.getElementById('maxHr').value = '';
@@ -667,6 +741,7 @@ function startEdit(id) {
   const e = _entries.find(x => x.id === id);
   if (!e) return;
   _editId = id;
+  _selectedTypeName = e.exercise_type || '';
   document.getElementById('formTitle').textContent = 'Edit entry';
   document.getElementById('cancelEditBtn').style.display = 'inline-flex';
   document.getElementById('saveBtn').textContent = 'Update';
@@ -674,8 +749,26 @@ function startEdit(id) {
   const d = new Date(e.logged_at);
   d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
   document.getElementById('loggedAt').value = d.toISOString().slice(0, 16);
-  document.getElementById('exType').value = e.exercise_type || '';
-  document.getElementById('durMin').value = e.duration_minutes || '';
+  // Populate the type dropdown (ensure the entry's type is in the list).
+  const sel = document.getElementById('exTypeSel');
+  if (sel) {
+    if (e.exercise_type && !findTypeByName(e.exercise_type)) {
+      // Edge case: entry references a type we don't have in the registry
+      // (e.g. seeded backfill missed it). Add an option in-place.
+      const opt = document.createElement('option');
+      opt.value = e.exercise_type; opt.textContent = e.exercise_type;
+      sel.appendChild(opt);
+    }
+    sel.value = e.exercise_type || '';
+  }
+  // Duration: prefer seconds, fall back to old minutes.
+  const totalSec = Number.isFinite(parseInt(e.duration_seconds, 10))
+    ? e.duration_seconds
+    : Math.round((parseFloat(e.duration_minutes) || 0) * 60);
+  const mm = Math.floor(totalSec / 60);
+  const ss = totalSec - mm * 60;
+  document.getElementById('durMin').value = mm || '';
+  document.getElementById('durSec').value = ss || '';
   document.getElementById('cals').value = e.calories || '';
   document.getElementById('avgHr').value = e.avg_heart_rate || '';
   document.getElementById('maxHr').value = e.max_heart_rate || '';
@@ -778,16 +871,56 @@ async function init() {
     t.addEventListener('click', () => { _range = t.dataset.range; renderAll(); });
   });
 
+  // Type dropdown — track selection so renderAll preserves it.
+  document.getElementById('exTypeSel').addEventListener('change', e => {
+    _selectedTypeName = e.target.value || '';
+  });
+  // Add-type modal wiring.
+  const addTypeModal = document.getElementById('addTypeModal');
+  document.getElementById('addTypeBtn').addEventListener('click', () => {
+    document.getElementById('newTypeName').value = '';
+    addTypeModal.classList.add('shown');
+    setTimeout(() => document.getElementById('newTypeName').focus(), 50);
+  });
+  document.getElementById('addTypeCancelBtn').addEventListener('click', () =>
+    addTypeModal.classList.remove('shown'));
+  addTypeModal.addEventListener('click', ev => {
+    if (ev.target === addTypeModal) addTypeModal.classList.remove('shown');
+  });
+  async function saveNewType() {
+    const name = document.getElementById('newTypeName').value.trim();
+    if (!name) { toast('Name is required', 'err'); return; }
+    try {
+      const canonical = await ensureType(name);
+      _selectedTypeName = canonical;
+      renderAll();
+      document.getElementById('exTypeSel').value = canonical;
+      addTypeModal.classList.remove('shown');
+      toast('Added "' + canonical + '"', 'ok');
+    } catch (e) {
+      toast('Could not add type: ' + e.message, 'err');
+    }
+  }
+  document.getElementById('addTypeSaveBtn').addEventListener('click', saveNewType);
+  document.getElementById('newTypeName').addEventListener('keydown', ev => {
+    if (ev.key === 'Enter') { ev.preventDefault(); saveNewType(); }
+  });
+
   // Form submit.
   document.getElementById('logForm').addEventListener('submit', async ev => {
     ev.preventDefault();
     const loggedAtLocal = document.getElementById('loggedAt').value;
-    const exType = document.getElementById('exType').value.trim();
-    if (!loggedAtLocal || !exType) { toast('Need at least date+time and type', 'err'); return; }
+    const exType = (document.getElementById('exTypeSel').value || '').trim();
+    if (!loggedAtLocal || !exType) { toast('Pick a type and a date+time', 'err'); return; }
+    const mm = parseInt(document.getElementById('durMin').value, 10) || 0;
+    const ss = parseInt(document.getElementById('durSec').value, 10) || 0;
+    const totalSec = mm * 60 + ss;
     const payload = {
       logged_at: new Date(loggedAtLocal).toISOString(),
       exercise_type: exType,
-      duration_minutes: parseFloat(document.getElementById('durMin').value) || null,
+      duration_seconds: totalSec || null,
+      // Keep duration_minutes in sync for legacy readers / backward compat.
+      duration_minutes: totalSec ? +(totalSec / 60).toFixed(2) : null,
       calories: parseInt(document.getElementById('cals').value, 10) || null,
       avg_heart_rate: parseInt(document.getElementById('avgHr').value, 10) || null,
       max_heart_rate: parseInt(document.getElementById('maxHr').value, 10) || null,
@@ -795,6 +928,9 @@ async function init() {
     };
     document.getElementById('saveBtn').disabled = true;
     try {
+      // Defensive: in the unlikely case the user is editing and the type
+      // doesn't exist in the registry yet, create it before saving.
+      await ensureType(exType);
       const saved = await saveEntry(payload);
       if (saved) {
         if (_editId) {
@@ -819,8 +955,9 @@ async function init() {
   // Default the datetime input to now.
   document.getElementById('loggedAt').value = nowLocalIso();
 
-  try { await loadEntries(); }
-  catch (e) {
+  try {
+    await Promise.all([loadEntries(), loadTypes()]);
+  } catch (e) {
     document.getElementById('entriesRoot').innerHTML = '<div class="empty">Could not load: ' + esc(e.message) + '</div>';
     return;
   }
