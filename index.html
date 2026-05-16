@@ -1,0 +1,556 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0031a1">
+<title>Exercise Log</title>
+<style>
+  :root {
+    --spm-red:    #ea002a;
+    --spm-blue:   #0031a1;
+    --text:       #111827;
+    --text-dim:   #6b7280;
+    --border:     #e5e7eb;
+    --bg:         #f9fafb;
+    --bg-card:    #ffffff;
+    --ok:         #16a34a;
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    color: var(--text);
+    background: var(--bg);
+    line-height: 1.5;
+    min-height: 100vh;
+    -webkit-text-size-adjust: 100%;
+  }
+  .header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 16px;
+    background: linear-gradient(90deg, var(--spm-blue) 0%, var(--spm-red) 100%);
+    color: #fff;
+  }
+  .header h1 { font-size: 1.15rem; font-weight: 800; margin: 0; }
+  .header .ver { font-size: 0.78rem; opacity: 0.85; }
+  main { max-width: 720px; margin: 0 auto; padding: 14px; }
+
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px;
+    margin-bottom: 12px;
+  }
+  .card h2 { margin: 0 0 10px; font-size: 1rem; font-weight: 800; }
+
+  /* Identity strip */
+  .id-strip {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    font-size: 0.85rem; color: var(--text-dim);
+  }
+  .id-strip input {
+    flex: 1; min-width: 140px;
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: 4px 8px; font: inherit; font-size: 0.9rem;
+  }
+
+  /* Form */
+  form .row {
+    display: grid; gap: 8px; grid-template-columns: 1fr 1fr;
+    margin-bottom: 8px;
+  }
+  form .row.full { grid-template-columns: 1fr; }
+  label { display: block; font-size: 0.82rem; font-weight: 700; color: var(--text-dim); margin-bottom: 2px; }
+  input[type=text], input[type=number], input[type=datetime-local], textarea, select {
+    width: 100%; font: inherit; font-size: 0.95rem;
+    padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px;
+    background: #fff; color: var(--text);
+  }
+  textarea { resize: vertical; min-height: 50px; }
+
+  /* Buttons */
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    gap: 6px; font: inherit; font-weight: 800; font-size: 0.95rem;
+    padding: 10px 16px; border-radius: 8px;
+    background: var(--spm-blue); color: #fff;
+    border: 1px solid var(--spm-blue); cursor: pointer;
+  }
+  .btn.secondary { background: #fff; color: var(--spm-blue); }
+  .btn.danger    { background: #fff; color: var(--spm-red); border-color: var(--spm-red); }
+  .btn:disabled  { opacity: 0.5; cursor: not-allowed; }
+  .btn-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+
+  /* Summary */
+  .summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px; }
+  .sgcell {
+    background: #f9fafb; border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px; text-align: center;
+  }
+  .sgcell .lbl { font-size: 0.74rem; color: var(--text-dim); }
+  .sgcell .val { font-size: 1.4rem; font-weight: 800; color: var(--spm-blue); }
+
+  /* Range tabs */
+  .tabs { display: flex; gap: 4px; margin-bottom: 10px; flex-wrap: wrap; }
+  .tab {
+    flex: 1; min-width: 80px; text-align: center;
+    padding: 6px 10px; font-size: 0.88rem; font-weight: 700;
+    border: 1px solid var(--border); background: #fff; color: var(--text);
+    border-radius: 8px; cursor: pointer;
+  }
+  .tab.active { background: var(--spm-blue); color: #fff; border-color: var(--spm-blue); }
+
+  /* Entry list */
+  .entries { display: flex; flex-direction: column; gap: 8px; }
+  .entry {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 4px 12px;
+    padding: 10px 12px;
+    border: 1px solid var(--border); border-radius: 8px;
+    background: #fff;
+  }
+  .entry .e-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .entry .e-type { font-weight: 800; }
+  .entry .e-when { color: var(--text-dim); font-size: 0.85rem; }
+  .entry .e-stats { color: var(--text-dim); font-size: 0.88rem; }
+  .entry .e-notes { grid-column: 1 / -1; color: var(--text); font-size: 0.88rem; }
+  .entry .e-actions { display: flex; gap: 4px; }
+  .entry .icon-btn {
+    background: transparent; border: 0; cursor: pointer; padding: 4px;
+    color: var(--text-dim); border-radius: 4px;
+  }
+  .entry .icon-btn:hover { background: #f3f4f6; color: var(--text); }
+  .entry .icon-btn.danger:hover { color: var(--spm-red); }
+  .entry svg { width: 16px; height: 16px; }
+
+  .empty { text-align: center; padding: 30px 14px; color: var(--text-dim); font-size: 0.95rem; }
+
+  .toast {
+    position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
+    background: var(--text); color: #fff; padding: 10px 18px;
+    border-radius: 8px; font-size: 0.92rem; font-weight: 600;
+    box-shadow: 0 6px 24px rgba(0,0,0,0.25);
+    z-index: 1000; opacity: 0; transition: opacity 200ms;
+  }
+  .toast.shown { opacity: 1; }
+  .toast.err { background: var(--spm-red); }
+  .toast.ok  { background: var(--ok); }
+
+  .update-overlay {
+    position: fixed; inset: 0; background: rgba(15,23,42,0.85);
+    display: none; align-items: center; justify-content: center;
+    z-index: 9999; color: #fff; text-align: center; padding: 24px;
+  }
+  .update-overlay.shown { display: flex; }
+  .update-overlay .uo-card {
+    background: var(--bg-card); color: var(--text);
+    border-radius: 14px; padding: 22px; max-width: 380px;
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Exercise Log</h1>
+  <div class="ver" id="versionLabel"></div>
+</div>
+
+<main>
+  <!-- Identity strip -->
+  <div class="card" id="identityCard">
+    <div class="id-strip">
+      <label for="nicknameInput" style="margin:0;">Name</label>
+      <input type="text" id="nicknameInput" placeholder="(optional — for your reference)">
+      <span id="deviceLabel" style="font-size:0.78rem;"></span>
+    </div>
+  </div>
+
+  <!-- Log form -->
+  <div class="card">
+    <h2 id="formTitle">Log exercise</h2>
+    <form id="logForm">
+      <div class="row">
+        <div>
+          <label for="loggedAt">When</label>
+          <input type="datetime-local" id="loggedAt" required>
+        </div>
+        <div>
+          <label for="exType">Type</label>
+          <input type="text" id="exType" required placeholder="e.g. Bike ride, Walk, Yoga" list="exTypeList">
+          <datalist id="exTypeList"></datalist>
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label for="durMin">Minutes</label>
+          <input type="number" id="durMin" min="0" step="0.5" inputmode="decimal" placeholder="30">
+        </div>
+        <div>
+          <label for="cals">Calories</label>
+          <input type="number" id="cals" min="0" step="1" inputmode="numeric" placeholder="(estimate)">
+        </div>
+      </div>
+      <div class="row full">
+        <div>
+          <label for="exNotes">Notes</label>
+          <textarea id="exNotes" placeholder="(optional)"></textarea>
+        </div>
+      </div>
+      <div class="btn-row">
+        <button type="submit" class="btn" id="saveBtn">Save</button>
+        <button type="button" class="btn secondary" id="cancelEditBtn" style="display:none">Cancel edit</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- Range tabs + summary + entries -->
+  <div class="card">
+    <div class="tabs" id="rangeTabs">
+      <button type="button" class="tab active" data-range="today">Today</button>
+      <button type="button" class="tab" data-range="week">7 days</button>
+      <button type="button" class="tab" data-range="month">30 days</button>
+      <button type="button" class="tab" data-range="all">All</button>
+    </div>
+    <div class="summary">
+      <div class="sgcell"><div class="lbl">Entries</div><div class="val" id="statCount">0</div></div>
+      <div class="sgcell"><div class="lbl">Minutes</div><div class="val" id="statMinutes">0</div></div>
+      <div class="sgcell"><div class="lbl">Calories</div><div class="val" id="statCals">0</div></div>
+    </div>
+    <div class="entries" id="entriesRoot"></div>
+  </div>
+</main>
+
+<div class="update-overlay" id="updateOverlay">
+  <div class="uo-card">
+    <h2 style="margin:0 0 8px;font-size:1.05rem;">New version available</h2>
+    <p style="margin:0 0 14px;">A newer version has been deployed. Reloading…</p>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script src="version.js?_=__TS__"></script>
+<script>
+(function(){
+  const s = document.currentScript.previousElementSibling;
+  if (s && s.src.indexOf('__TS__') !== -1) s.src = s.src.replace('__TS__', Date.now());
+})();
+</script>
+
+<script>
+/* ════════════════════════════════════════════════════════════════════════
+   ExerciseLog — personal exercise logger.
+   - Device ID via crypto.randomUUID(), stored in localStorage.
+   - Reads/writes use anon key + RLS that's open (trusted-client model).
+   - All filtering by device_id happens client-side.
+   ════════════════════════════════════════════════════════════════════════ */
+const APP_NAME = 'ExerciseLog';
+const SB_URL   = 'https://dqzbekoaysgaiqljueac.supabase.co';
+const SB_ANON  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRxemJla29heXNnYWlxbGp1ZWFjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUxNzA5NzgsImV4cCI6MjA5MDc0Njk3OH0.cCdGxZ4zEFzU_r6lWSDeoNWG67Q4MSYCAtpds035dfU';
+const SCHEMA   = 'exercise';
+
+const HEADERS_READ  = { apikey: SB_ANON, Authorization: 'Bearer ' + SB_ANON, 'Accept-Profile': SCHEMA };
+const HEADERS_WRITE = { ...HEADERS_READ,
+  'Content-Type': 'application/json', 'Content-Profile': SCHEMA,
+  Prefer: 'return=representation' };
+const HEADERS_APA   = { apikey: SB_ANON, Authorization: 'Bearer ' + SB_ANON, 'Accept-Profile': 'apa_core' };
+
+/* ─── Device identity ─────────────────────────────────────────────────*/
+function getDeviceId() {
+  let id = localStorage.getItem('exerciselog.device_id');
+  if (!id) {
+    id = (crypto.randomUUID && crypto.randomUUID())
+      || ('cid-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2,10));
+    try { localStorage.setItem('exerciselog.device_id', id); }
+    catch (_) { id = 'nostorage-' + id; }
+  }
+  return id;
+}
+function getNickname() {
+  return localStorage.getItem('exerciselog.nickname') || '';
+}
+function setNickname(s) {
+  try { localStorage.setItem('exerciselog.nickname', s); } catch (_) {}
+}
+const DEVICE_ID = getDeviceId();
+
+/* ─── State ───────────────────────────────────────────────────────────*/
+let _entries = [];
+let _range = 'today';
+let _editId = null;
+
+/* ─── Supabase helpers ───────────────────────────────────────────────*/
+async function sb(method, path, body) {
+  const opts = { method, headers: method === 'GET' ? { ...HEADERS_READ } : { ...HEADERS_WRITE } };
+  if (body !== undefined) opts.body = JSON.stringify(body);
+  const r = await fetch(SB_URL + '/rest/v1/' + path, opts);
+  if (!r.ok) {
+    const txt = await r.text();
+    throw new Error('Supabase ' + r.status + ': ' + txt.slice(0,300));
+  }
+  if (r.status === 204) return null;
+  return r.headers.get('Content-Type','').includes('json') ? r.json() : r.text();
+}
+
+async function loadEntries() {
+  // Pull everything for this device, newest first.
+  const path = 'entries?device_id=eq.' + encodeURIComponent(DEVICE_ID)
+    + '&order=logged_at.desc&limit=1000';
+  _entries = await sb('GET', path) || [];
+}
+
+async function saveEntry(payload) {
+  if (_editId) {
+    const path = 'entries?id=eq.' + _editId;
+    const updated = await sb('PATCH', path, payload);
+    return updated && updated[0];
+  } else {
+    const row = { ...payload, device_id: DEVICE_ID, display_name: getNickname() || null };
+    const created = await sb('POST', 'entries', row);
+    return created && created[0];
+  }
+}
+
+async function deleteEntry(id) {
+  await sb('DELETE', 'entries?id=eq.' + id);
+}
+
+/* ─── Range filter ────────────────────────────────────────────────────*/
+function filterByRange(entries, range) {
+  if (range === 'all') return entries;
+  const now = Date.now();
+  let ms;
+  if (range === 'today') {
+    const startOfToday = new Date(); startOfToday.setHours(0,0,0,0);
+    ms = startOfToday.getTime();
+  } else if (range === 'week') {
+    ms = now - 7 * 24 * 60 * 60 * 1000;
+  } else if (range === 'month') {
+    ms = now - 30 * 24 * 60 * 60 * 1000;
+  } else {
+    return entries;
+  }
+  return entries.filter(e => new Date(e.logged_at).getTime() >= ms);
+}
+
+function summarize(entries) {
+  let mins = 0, cals = 0;
+  for (const e of entries) {
+    mins += parseFloat(e.duration_minutes) || 0;
+    cals += parseInt(e.calories, 10) || 0;
+  }
+  return { count: entries.length, mins, cals };
+}
+
+/* ─── Render ──────────────────────────────────────────────────────────*/
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+function fmtWhen(iso) {
+  const d = new Date(iso);
+  const today = new Date(); today.setHours(0,0,0,0);
+  const dt = new Date(d); dt.setHours(0,0,0,0);
+  const diff = Math.round((today - dt) / (24*60*60*1000));
+  const t = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  if (diff === 0)  return 'Today, ' + t;
+  if (diff === 1)  return 'Yesterday, ' + t;
+  if (diff < 7)    return d.toLocaleDateString([], { weekday: 'short' }) + ', ' + t;
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + (d.getFullYear() === today.getFullYear() ? '' : ' ' + d.getFullYear()) + ', ' + t;
+}
+
+function renderAll() {
+  // Identity strip.
+  document.getElementById('nicknameInput').value = getNickname();
+  document.getElementById('deviceLabel').textContent = '· device ' + DEVICE_ID.slice(0, 8);
+
+  // Datalist of unique exercise types for autocomplete.
+  const types = [...new Set(_entries.map(e => e.exercise_type).filter(Boolean))];
+  document.getElementById('exTypeList').innerHTML =
+    types.map(t => '<option value="' + esc(t) + '">').join('');
+
+  // Filtered entries + summary.
+  const filtered = filterByRange(_entries, _range);
+  const sum = summarize(filtered);
+  document.getElementById('statCount').textContent = sum.count;
+  document.getElementById('statMinutes').textContent = sum.mins ? (Number.isInteger(sum.mins) ? sum.mins : sum.mins.toFixed(1)) : 0;
+  document.getElementById('statCals').textContent = sum.cals || 0;
+
+  // Tabs.
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.range === _range));
+
+  // Entries.
+  const root = document.getElementById('entriesRoot');
+  if (filtered.length === 0) {
+    root.innerHTML = '<div class="empty">No entries in this range yet. Log one above.</div>';
+    return;
+  }
+  root.innerHTML = filtered.map(e => `
+    <div class="entry">
+      <div>
+        <div class="e-top">
+          <span class="e-type">${esc(e.exercise_type)}</span>
+          <span class="e-when">${esc(fmtWhen(e.logged_at))}</span>
+        </div>
+        <div class="e-stats">
+          ${e.duration_minutes ? esc(e.duration_minutes) + ' min · ' : ''}${e.calories ? esc(e.calories) + ' cal' : ''}
+        </div>
+        ${e.notes ? '<div class="e-notes">' + esc(e.notes) + '</div>' : ''}
+      </div>
+      <div class="e-actions">
+        <button class="icon-btn" data-edit="${e.id}" title="Edit">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+        </button>
+        <button class="icon-btn danger" data-del="${e.id}" title="Delete">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+        </button>
+      </div>
+    </div>
+  `).join('');
+  root.querySelectorAll('[data-edit]').forEach(btn => btn.addEventListener('click', () => startEdit(+btn.dataset.edit)));
+  root.querySelectorAll('[data-del]').forEach(btn => btn.addEventListener('click', () => confirmDelete(+btn.dataset.del)));
+}
+
+/* ─── Form: create vs edit ───────────────────────────────────────────*/
+function nowLocalIso() {
+  const d = new Date();
+  d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+  return d.toISOString().slice(0, 16);
+}
+
+function resetForm() {
+  _editId = null;
+  document.getElementById('formTitle').textContent = 'Log exercise';
+  document.getElementById('cancelEditBtn').style.display = 'none';
+  document.getElementById('saveBtn').textContent = 'Save';
+  document.getElementById('loggedAt').value = nowLocalIso();
+  document.getElementById('exType').value = '';
+  document.getElementById('durMin').value = '';
+  document.getElementById('cals').value = '';
+  document.getElementById('exNotes').value = '';
+}
+
+function startEdit(id) {
+  const e = _entries.find(x => x.id === id);
+  if (!e) return;
+  _editId = id;
+  document.getElementById('formTitle').textContent = 'Edit entry';
+  document.getElementById('cancelEditBtn').style.display = 'inline-flex';
+  document.getElementById('saveBtn').textContent = 'Update';
+  // Convert ISO logged_at to datetime-local format (local time, no Z).
+  const d = new Date(e.logged_at);
+  d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+  document.getElementById('loggedAt').value = d.toISOString().slice(0, 16);
+  document.getElementById('exType').value = e.exercise_type || '';
+  document.getElementById('durMin').value = e.duration_minutes || '';
+  document.getElementById('cals').value = e.calories || '';
+  document.getElementById('exNotes').value = e.notes || '';
+  document.getElementById('logForm').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+async function confirmDelete(id) {
+  if (!confirm('Delete this entry?')) return;
+  try {
+    await deleteEntry(id);
+    _entries = _entries.filter(x => x.id !== id);
+    renderAll();
+    toast('Deleted', 'ok');
+  } catch (e) {
+    toast('Delete failed: ' + e.message, 'err');
+  }
+}
+
+/* ─── Toast ──────────────────────────────────────────────────────────*/
+let _toastTimer = null;
+function toast(msg, kind) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast shown ' + (kind || '');
+  if (_toastTimer) clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => t.classList.remove('shown'), 2500);
+}
+
+/* ─── Version auto-update ────────────────────────────────────────────*/
+async function checkVersion() {
+  try {
+    const r = await fetch(SB_URL + '/rest/v1/apps?app_name=eq.' + APP_NAME + '&select=version', { headers: HEADERS_APA });
+    if (!r.ok) return;
+    const data = await r.json();
+    if (data && data[0] && data[0].version && data[0].version !== window.APP_VERSION) {
+      document.getElementById('updateOverlay').classList.add('shown');
+      setTimeout(() => location.reload(), 2500);
+    }
+  } catch (_) {}
+}
+
+/* ─── Init ───────────────────────────────────────────────────────────*/
+async function init() {
+  document.title = 'Exercise Log';
+  document.getElementById('versionLabel').textContent = 'v' + (window.APP_VERSION || '?');
+  checkVersion();
+  setInterval(checkVersion, 30000);
+
+  // Nickname change handler.
+  document.getElementById('nicknameInput').addEventListener('input', e => {
+    setNickname(e.target.value.trim());
+  });
+
+  // Range tabs.
+  document.querySelectorAll('.tab').forEach(t => {
+    t.addEventListener('click', () => { _range = t.dataset.range; renderAll(); });
+  });
+
+  // Form submit.
+  document.getElementById('logForm').addEventListener('submit', async ev => {
+    ev.preventDefault();
+    const loggedAtLocal = document.getElementById('loggedAt').value;
+    const exType = document.getElementById('exType').value.trim();
+    if (!loggedAtLocal || !exType) { toast('Need at least date+time and type', 'err'); return; }
+    const payload = {
+      logged_at: new Date(loggedAtLocal).toISOString(),
+      exercise_type: exType,
+      duration_minutes: parseFloat(document.getElementById('durMin').value) || null,
+      calories: parseInt(document.getElementById('cals').value, 10) || null,
+      notes: document.getElementById('exNotes').value.trim() || null
+    };
+    document.getElementById('saveBtn').disabled = true;
+    try {
+      const saved = await saveEntry(payload);
+      if (saved) {
+        if (_editId) {
+          _entries = _entries.map(x => x.id === saved.id ? saved : x);
+        } else {
+          _entries.unshift(saved);
+        }
+        _entries.sort((a,b) => new Date(b.logged_at) - new Date(a.logged_at));
+      }
+      resetForm();
+      renderAll();
+      toast('Saved', 'ok');
+    } catch (e) {
+      toast('Save failed: ' + e.message, 'err');
+    } finally {
+      document.getElementById('saveBtn').disabled = false;
+    }
+  });
+
+  document.getElementById('cancelEditBtn').addEventListener('click', () => { resetForm(); renderAll(); });
+
+  // Default the datetime input to now.
+  document.getElementById('loggedAt').value = nowLocalIso();
+
+  try { await loadEntries(); }
+  catch (e) {
+    document.getElementById('entriesRoot').innerHTML = '<div class="empty">Could not load: ' + esc(e.message) + '</div>';
+    return;
+  }
+  renderAll();
+}
+document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>
