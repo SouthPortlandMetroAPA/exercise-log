@@ -139,16 +139,26 @@
   .toast.err { background: var(--spm-red); }
   .toast.ok  { background: var(--ok); }
 
+  /* Auto-update — matches BreakOut/OurRack canonical pattern. */
   .update-overlay {
-    position: fixed; inset: 0; background: rgba(15,23,42,0.85);
-    display: none; align-items: center; justify-content: center;
-    z-index: 9999; color: #fff; text-align: center; padding: 24px;
+    position: fixed; inset: 0; background: rgba(10,20,40,0.72);
+    z-index: 9999; display: none; align-items: center; justify-content: center;
+    padding: 24px;
   }
   .update-overlay.shown { display: flex; }
-  .update-overlay .uo-card {
-    background: var(--bg-card); color: var(--text);
-    border-radius: 14px; padding: 22px; max-width: 380px;
+  .update-box {
+    background: #fff; border-radius: 14px; padding: 32px;
+    max-width: 380px; text-align: center;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.4);
   }
+  .update-spinner {
+    width: 48px; height: 48px; margin: 0 auto 16px; border-radius: 50%;
+    border: 5px solid rgba(0,49,161,0.15);
+    border-top-color: var(--spm-blue);
+    animation: spin 0.85s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .update-title { font-size: 1.1rem; font-weight: 800; color: var(--spm-blue); margin-bottom: 6px; }
 
   /* Settings modal */
   .modal-backdrop {
@@ -331,9 +341,10 @@
 </main>
 
 <div class="update-overlay" id="updateOverlay">
-  <div class="uo-card">
-    <h2 style="margin:0 0 8px;font-size:1.05rem;">New version available</h2>
-    <p style="margin:0 0 14px;">A newer version has been deployed. Reloading…</p>
+  <div class="update-box">
+    <div class="update-spinner"></div>
+    <div class="update-title">Updating Exercise Log</div>
+    <div>A new version is being deployed&hellip;</div>
   </div>
 </div>
 <div class="toast" id="toast"></div>
@@ -694,17 +705,38 @@ function toast(msg, kind) {
   _toastTimer = setTimeout(() => t.classList.remove('shown'), 2500);
 }
 
-/* ─── Version auto-update ────────────────────────────────────────────*/
+/* ─── Version auto-update ────────────────────────────────────────────
+   Canonical SPM pattern (matches BreakOut / OurRack): on mismatch, open
+   the overlay AND poll the deployed version.js until it reports the new
+   version. Without this poll, a reload before Pages has built the new
+   HTML strands the user in an overlay loop. */
+let _versionMismatch = false;
 async function checkVersion() {
+  if (_versionMismatch) return;
   try {
     const r = await fetch(SB_URL + '/rest/v1/apps?app_name=eq.' + APP_NAME + '&select=version', { headers: HEADERS_APA });
     if (!r.ok) return;
-    const data = await r.json();
-    if (data && data[0] && data[0].version && data[0].version !== window.APP_VERSION) {
+    const d = await r.json();
+    if (d && d[0] && d[0].version && d[0].version !== window.APP_VERSION) {
+      _versionMismatch = true;
       document.getElementById('updateOverlay').classList.add('shown');
-      setTimeout(() => location.reload(), 2500);
+      pollForDeploy(d[0].version);
     }
   } catch (_) {}
+}
+function pollForDeploy(target) {
+  setTimeout(async () => {
+    try {
+      const r = await fetch('version.js?_=' + Date.now());
+      if (r.ok && (await r.text()).indexOf("APP_VERSION = '" + target + "'") !== -1) {
+        const u = new URL(location.href);
+        u.searchParams.set('_', String(Date.now()));
+        location.replace(u.toString());
+        return;
+      }
+    } catch (_) {}
+    pollForDeploy(target);
+  }, 3000);
 }
 
 /* ─── Init ───────────────────────────────────────────────────────────*/
