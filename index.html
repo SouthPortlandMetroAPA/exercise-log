@@ -252,16 +252,22 @@
   </div>
 </div>
 
-<!-- Add-type modal -->
-<div class="modal-backdrop" id="addTypeModal" style="display:none;">
-  <div class="modal-card">
-    <h2 style="margin:0 0 10px;font-size:1.05rem;">Add exercise type</h2>
-    <label for="newTypeName">Name</label>
-    <input type="text" id="newTypeName" placeholder="e.g. Bike ride, Walk, Yoga" style="width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:8px; background:#fff; font-size:0.95rem;">
-    <div style="font-size:0.78rem; color:var(--text-dim); margin-top:6px;">Saves to this device. Use existing names where you can — they're case-insensitive.</div>
-    <div class="btn-row" style="margin-top:12px;">
-      <button type="button" class="btn" id="addTypeSaveBtn">Save</button>
-      <button type="button" class="btn secondary" id="addTypeCancelBtn">Cancel</button>
+<!-- Type modal (add OR edit) -->
+<div class="modal-backdrop" id="typeModal" style="display:none;">
+  <div class="modal-card" style="max-width: 460px;">
+    <h2 id="typeModalTitle" style="margin:0 0 10px;font-size:1.05rem;">Add exercise type</h2>
+    <label for="typeName">Name</label>
+    <input type="text" id="typeName" placeholder="e.g. Cycling, Run, Yoga" style="width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:8px; background:#fff; font-size:0.95rem;">
+    <div style="font-size:0.78rem; color:var(--text-dim); margin-top:6px; margin-bottom:14px;">Saves to this device. Names are case-insensitive.</div>
+
+    <div style="font-weight:800; font-size:0.92rem; margin-bottom:4px;">Fields to collect for this type</div>
+    <div style="font-size:0.78rem; color:var(--text-dim); margin-bottom:8px;">Check the metrics you want to log per entry. Mark "required" for the ones that must be filled in.</div>
+    <div id="typeFieldList" style="display:flex; flex-direction:column; gap:6px; max-height:50vh; overflow-y:auto; padding:2px 2px 2px 0;"></div>
+
+    <div class="btn-row" style="margin-top:14px;">
+      <button type="button" class="btn" id="typeSaveBtn">Save</button>
+      <button type="button" class="btn danger" id="typeDeleteBtn" style="display:none;">Delete type</button>
+      <button type="button" class="btn secondary" id="typeCancelBtn">Cancel</button>
     </div>
   </div>
 </div>
@@ -291,6 +297,9 @@
             <select id="exTypeSel" style="flex:1; padding:8px 10px; border:1px solid var(--border); border-radius:8px; background:#fff; font-size:0.95rem; min-width:0;">
               <option value="">— pick a type —</option>
             </select>
+            <button type="button" id="editTypeBtn" class="btn secondary" style="padding:0 10px; flex:0 0 auto;" title="Edit selected type" disabled>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+            </button>
             <button type="button" id="addTypeBtn" class="btn secondary" style="padding:0 12px; font-size:1.2rem; flex:0 0 auto;" title="Add new type">+</button>
           </div>
         </div>
@@ -320,6 +329,8 @@
           <input type="number" id="maxHr" min="0" max="250" step="1" inputmode="numeric" placeholder="(optional)">
         </div>
       </div>
+      <!-- Dynamic per-type fields rendered into here when a type is selected. -->
+      <div id="extrasSection" style="margin-bottom:8px;"></div>
       <div class="row full">
         <div>
           <label for="exNotes">Notes</label>
@@ -415,6 +426,35 @@ function getNickname() {
 function setNickname(s) {
   try { localStorage.setItem('exerciselog.nickname', s); } catch (_) {}
 }
+/* ─── Field library ──────────────────────────────────────────────────
+   Curated library of per-type metrics (Strava/Garmin pattern: pick the
+   relevant ones per activity type, mark required where it matters).
+   Keys are stable — never rename. Display labels and units can change. */
+const FIELD_LIBRARY = {
+  distance:        { label: 'Distance',       unit: 'mi',   input: 'decimal', placeholder: '12.5', step: '0.01' },
+  elevation_gain:  { label: 'Elevation gain', unit: 'ft',   input: 'integer', placeholder: '800' },
+  avg_speed:       { label: 'Avg speed',      unit: 'mph',  input: 'decimal', placeholder: '15.2', step: '0.1' },
+  max_speed:       { label: 'Max speed',      unit: 'mph',  input: 'decimal', placeholder: '28.3', step: '0.1' },
+  sets:            { label: 'Sets',           unit: '',     input: 'integer', placeholder: '5' },
+  reps:            { label: 'Reps (total)',   unit: '',     input: 'integer', placeholder: '50' },
+  weight:          { label: 'Weight',         unit: 'lbs',  input: 'integer', placeholder: '150' },
+  rpe:             { label: 'RPE',            unit: '/10',  input: 'integer', placeholder: '7', max: 10 }
+};
+/* Stable ordering for the field library in the UI. */
+const FIELD_ORDER = ['distance','elevation_gain','avg_speed','max_speed','sets','reps','weight','rpe'];
+
+function parseFieldValue(key, raw) {
+  const def = FIELD_LIBRARY[key];
+  if (!def) return null;
+  if (raw == null || raw === '') return null;
+  if (def.input === 'integer') {
+    const n = parseInt(raw, 10);
+    return Number.isFinite(n) ? n : null;
+  }
+  const n = parseFloat(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
 function getStartOfWeek() {
   const v = parseInt(localStorage.getItem('exerciselog.start_of_week'), 10);
   return Number.isInteger(v) && v >= 0 && v <= 6 ? v : 1; // default Monday
@@ -509,6 +549,66 @@ function filterByRange(entries, range) {
     return entries;
   }
   return entries.filter(e => new Date(e.logged_at).getTime() >= ms);
+}
+
+/* ─── Per-type extras section (entry form) ─────────────────────────────
+   Reads the selected type's field_keys and renders an input row per
+   selected field. Reused on render() and on type-change. */
+function renderExtrasSection(extrasValues) {
+  const root = document.getElementById('extrasSection');
+  if (!root) return;
+  const typeName = (document.getElementById('exTypeSel') || {}).value || '';
+  const t = findTypeByName(typeName);
+  const fk = (t && t.field_keys) || {};
+  const keys = Object.keys(fk).filter(k => FIELD_LIBRARY[k]);
+  keys.sort((a, b) => FIELD_ORDER.indexOf(a) - FIELD_ORDER.indexOf(b));
+  if (keys.length === 0) { root.innerHTML = ''; return; }
+  const vals = extrasValues || {};
+  // Two-column grid that wraps to one column on narrow screens.
+  let html = '<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:8px;">';
+  for (const key of keys) {
+    const def = FIELD_LIBRARY[key];
+    const required = !!fk[key].required;
+    const cur = vals[key];
+    const id = 'fx_' + key;
+    const step = def.step || (def.input === 'decimal' ? '0.1' : '1');
+    const max = def.max != null ? ' max="' + def.max + '"' : '';
+    const inputmode = def.input === 'integer' ? 'numeric' : 'decimal';
+    html += '<div>'
+      + '<label for="' + id + '">' + esc(def.label)
+      + (def.unit ? ' <span style="color:var(--text-dim); font-weight:500;">(' + esc(def.unit) + ')</span>' : '')
+      + (required ? ' <span style="color:var(--spm-red);" title="required">*</span>' : '')
+      + '</label>'
+      + '<input type="number" id="' + id + '" min="0" step="' + step + '"' + max
+      + ' inputmode="' + inputmode + '"'
+      + (required ? ' required' : '')
+      + ' placeholder="' + esc(def.placeholder || '') + '"'
+      + (cur != null && cur !== '' ? ' value="' + esc(cur) + '"' : '')
+      + '>'
+      + '</div>';
+  }
+  html += '</div>';
+  root.innerHTML = html;
+}
+function collectExtrasFromForm() {
+  const typeName = (document.getElementById('exTypeSel') || {}).value || '';
+  const t = findTypeByName(typeName);
+  const fk = (t && t.field_keys) || {};
+  const out = {};
+  const missing = [];
+  for (const key of Object.keys(fk)) {
+    if (!FIELD_LIBRARY[key]) continue;
+    const el = document.getElementById('fx_' + key);
+    if (!el) continue;
+    const raw = el.value;
+    const parsed = parseFieldValue(key, raw);
+    if (parsed == null) {
+      if (fk[key].required) missing.push(FIELD_LIBRARY[key].label);
+      continue;
+    }
+    out[key] = parsed;
+  }
+  return { extras: out, missing };
 }
 
 /* Returns minutes (fractional) for an entry. Prefers second-precision
@@ -640,6 +740,16 @@ function renderAll() {
       const ahr = parseInt(e.avg_heart_rate, 10);
       const mhr = parseInt(e.max_heart_rate, 10);
       const badges = [];
+      // Per-type extras render first so they read like primary stats.
+      const extras = (e.extras && typeof e.extras === 'object') ? e.extras : {};
+      for (const key of FIELD_ORDER) {
+        if (!(key in extras)) continue;
+        const def = FIELD_LIBRARY[key];
+        if (!def) continue;
+        const v = extras[key];
+        if (v == null || v === '') continue;
+        badges.push('<span class="badge">' + esc(def.label) + ': <strong>' + esc(v) + (def.unit ? ' ' + esc(def.unit) : '') + '</strong></span>');
+      }
       if (calHr != null) badges.push('<span class="badge calhr">' + calHr + ' cal/hr</span>');
       if (Number.isFinite(ahr) && ahr > 0) badges.push('<span class="badge hr">♥ avg ' + ahr + '</span>');
       if (Number.isFinite(mhr) && mhr > 0) badges.push('<span class="badge hr">♥ max ' + mhr + '</span>');
@@ -735,6 +845,8 @@ function resetForm() {
   document.getElementById('avgHr').value = '';
   document.getElementById('maxHr').value = '';
   document.getElementById('exNotes').value = '';
+  document.getElementById('editTypeBtn').disabled = true;
+  renderExtrasSection();
 }
 
 function startEdit(id) {
@@ -773,6 +885,9 @@ function startEdit(id) {
   document.getElementById('avgHr').value = e.avg_heart_rate || '';
   document.getElementById('maxHr').value = e.max_heart_rate || '';
   document.getElementById('exNotes').value = e.notes || '';
+  document.getElementById('editTypeBtn').disabled = !findTypeByName(e.exercise_type);
+  // Hydrate the dynamic extras section with whatever was stored on this entry.
+  renderExtrasSection(e.extras || {});
   document.getElementById('logForm').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
@@ -871,39 +986,133 @@ async function init() {
     t.addEventListener('click', () => { _range = t.dataset.range; renderAll(); });
   });
 
-  // Type dropdown — track selection so renderAll preserves it.
+  // Type dropdown — track selection so renderAll preserves it, and
+  // re-render the entry-form extras when the type changes.
   document.getElementById('exTypeSel').addEventListener('change', e => {
     _selectedTypeName = e.target.value || '';
+    renderExtrasSection();
+    // Enable/disable Edit button.
+    document.getElementById('editTypeBtn').disabled = !_selectedTypeName;
   });
-  // Add-type modal wiring.
-  const addTypeModal = document.getElementById('addTypeModal');
-  document.getElementById('addTypeBtn').addEventListener('click', () => {
-    document.getElementById('newTypeName').value = '';
-    addTypeModal.classList.add('shown');
-    setTimeout(() => document.getElementById('newTypeName').focus(), 50);
+
+  // Type modal — used for both add and edit.
+  const typeModal = document.getElementById('typeModal');
+  let _editingTypeId = null;  // null = adding; otherwise = id being edited
+  function openTypeModal(typeId) {
+    _editingTypeId = typeId || null;
+    const t = typeId ? _types.find(x => x.id === typeId) : null;
+    document.getElementById('typeModalTitle').textContent = t ? ('Edit "' + t.name + '"') : 'Add exercise type';
+    document.getElementById('typeName').value = t ? t.name : '';
+    document.getElementById('typeDeleteBtn').style.display = t ? 'inline-flex' : 'none';
+    const fk = (t && t.field_keys) || {};
+    document.getElementById('typeFieldList').innerHTML = FIELD_ORDER.map(key => {
+      const def = FIELD_LIBRARY[key];
+      const applied = !!fk[key];
+      const required = applied && !!fk[key].required;
+      return '<div style="display:flex; align-items:center; gap:10px; padding:6px 8px; border:1px solid var(--border); border-radius:8px; background:#fff;">'
+        + '<label style="display:flex; align-items:center; gap:8px; flex:1; margin:0; cursor:pointer; font-weight:600; font-size:0.92rem; color:var(--text);">'
+        +   '<input type="checkbox" data-applies="' + key + '"' + (applied ? ' checked' : '') + '>'
+        +   esc(def.label) + (def.unit ? ' <span style="color:var(--text-dim); font-weight:500; font-size:0.85rem;">' + esc(def.unit) + '</span>' : '')
+        + '</label>'
+        + '<label style="display:flex; align-items:center; gap:5px; margin:0; cursor:pointer; font-size:0.82rem; color:var(--text-dim);">'
+        +   '<input type="checkbox" data-required="' + key + '"' + (required ? ' checked' : '') + (applied ? '' : ' disabled') + '>'
+        +   'required'
+        + '</label>'
+        + '</div>';
+    }).join('');
+    // Wire up "applies" checkboxes to enable/disable the matching "required" checkbox.
+    document.querySelectorAll('#typeFieldList input[data-applies]').forEach(cb => {
+      cb.addEventListener('change', () => {
+        const key = cb.dataset.applies;
+        const req = document.querySelector('#typeFieldList input[data-required="' + key + '"]');
+        if (req) {
+          req.disabled = !cb.checked;
+          if (!cb.checked) req.checked = false;
+        }
+      });
+    });
+    typeModal.classList.add('shown');
+    setTimeout(() => document.getElementById('typeName').focus(), 50);
+  }
+  function closeTypeModal() {
+    typeModal.classList.remove('shown');
+    _editingTypeId = null;
+  }
+  document.getElementById('addTypeBtn').addEventListener('click', () => openTypeModal(null));
+  document.getElementById('editTypeBtn').addEventListener('click', () => {
+    const t = findTypeByName(_selectedTypeName);
+    if (!t) { toast('Pick a type first', 'err'); return; }
+    openTypeModal(t.id);
   });
-  document.getElementById('addTypeCancelBtn').addEventListener('click', () =>
-    addTypeModal.classList.remove('shown'));
-  addTypeModal.addEventListener('click', ev => {
-    if (ev.target === addTypeModal) addTypeModal.classList.remove('shown');
-  });
-  async function saveNewType() {
-    const name = document.getElementById('newTypeName').value.trim();
+  document.getElementById('typeCancelBtn').addEventListener('click', closeTypeModal);
+  typeModal.addEventListener('click', ev => { if (ev.target === typeModal) closeTypeModal(); });
+
+  function collectFieldKeysFromModal() {
+    const fk = {};
+    document.querySelectorAll('#typeFieldList input[data-applies]').forEach(cb => {
+      if (!cb.checked) return;
+      const key = cb.dataset.applies;
+      const req = document.querySelector('#typeFieldList input[data-required="' + key + '"]');
+      fk[key] = { required: !!(req && req.checked) };
+    });
+    return fk;
+  }
+
+  async function saveTypeFromModal() {
+    const name = document.getElementById('typeName').value.trim();
     if (!name) { toast('Name is required', 'err'); return; }
+    const field_keys = collectFieldKeysFromModal();
     try {
-      const canonical = await ensureType(name);
-      _selectedTypeName = canonical;
+      if (_editingTypeId) {
+        // Edit existing.
+        const updated = await sb('PATCH', 'types?id=eq.' + _editingTypeId, { name, field_keys });
+        if (updated && updated[0]) {
+          const i = _types.findIndex(t => t.id === _editingTypeId);
+          if (i >= 0) _types[i] = updated[0];
+          _selectedTypeName = updated[0].name;
+        }
+        toast('Updated', 'ok');
+      } else {
+        // Add new — guard against duplicate name.
+        const existing = findTypeByName(name);
+        if (existing) { toast('"' + existing.name + '" already exists', 'err'); return; }
+        const created = await sb('POST', 'types', { device_id: DEVICE_ID, name, field_keys });
+        if (created && created[0]) {
+          _types.push(created[0]);
+          _types.sort((a, b) => a.name.localeCompare(b.name));
+          _selectedTypeName = created[0].name;
+        }
+        toast('Added "' + name + '"', 'ok');
+      }
+      closeTypeModal();
       renderAll();
-      document.getElementById('exTypeSel').value = canonical;
-      addTypeModal.classList.remove('shown');
-      toast('Added "' + canonical + '"', 'ok');
+      document.getElementById('exTypeSel').value = _selectedTypeName;
+      renderExtrasSection();
     } catch (e) {
-      toast('Could not add type: ' + e.message, 'err');
+      toast('Could not save type: ' + e.message, 'err');
     }
   }
-  document.getElementById('addTypeSaveBtn').addEventListener('click', saveNewType);
-  document.getElementById('newTypeName').addEventListener('keydown', ev => {
-    if (ev.key === 'Enter') { ev.preventDefault(); saveNewType(); }
+  document.getElementById('typeSaveBtn').addEventListener('click', saveTypeFromModal);
+  document.getElementById('typeName').addEventListener('keydown', ev => {
+    if (ev.key === 'Enter') { ev.preventDefault(); saveTypeFromModal(); }
+  });
+
+  document.getElementById('typeDeleteBtn').addEventListener('click', async () => {
+    if (!_editingTypeId) return;
+    const t = _types.find(x => x.id === _editingTypeId);
+    if (!t) return;
+    if (!confirm('Delete type "' + t.name + '"? Existing entries that use this type will keep their data but the type will no longer be in the dropdown.')) return;
+    try {
+      await sb('DELETE', 'types?id=eq.' + _editingTypeId);
+      _types = _types.filter(x => x.id !== _editingTypeId);
+      if (_selectedTypeName === t.name) _selectedTypeName = '';
+      closeTypeModal();
+      renderAll();
+      renderExtrasSection();
+      toast('Type deleted', 'ok');
+    } catch (e) {
+      toast('Delete failed: ' + e.message, 'err');
+    }
   });
 
   // Form submit.
@@ -912,6 +1121,12 @@ async function init() {
     const loggedAtLocal = document.getElementById('loggedAt').value;
     const exType = (document.getElementById('exTypeSel').value || '').trim();
     if (!loggedAtLocal || !exType) { toast('Pick a type and a date+time', 'err'); return; }
+    // Validate + collect dynamic per-type extras.
+    const { extras, missing } = collectExtrasFromForm();
+    if (missing.length) {
+      toast('Required for this type: ' + missing.join(', '), 'err');
+      return;
+    }
     const mm = parseInt(document.getElementById('durMin').value, 10) || 0;
     const ss = parseInt(document.getElementById('durSec').value, 10) || 0;
     const totalSec = mm * 60 + ss;
@@ -924,7 +1139,8 @@ async function init() {
       calories: parseInt(document.getElementById('cals').value, 10) || null,
       avg_heart_rate: parseInt(document.getElementById('avgHr').value, 10) || null,
       max_heart_rate: parseInt(document.getElementById('maxHr').value, 10) || null,
-      notes: document.getElementById('exNotes').value.trim() || null
+      notes: document.getElementById('exNotes').value.trim() || null,
+      extras: extras
     };
     document.getElementById('saveBtn').disabled = true;
     try {
